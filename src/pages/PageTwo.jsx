@@ -5,7 +5,7 @@ export default function PageTwo() {
   return (
     <div className="page-two">
       <h1>Page Two</h1>
-      <p>To jest random tekst na Page Two</p>
+      <p>Nie wiem co powiedzieć</p>
       <Link to="/" className="button">Przejdź do Page One</Link>
     </div>
   );
