@@ -1,18 +1,27 @@
-from fastapi import APIRouter, Depends, HTTPException
+# routers/todos.py
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from database import get_db
-import models, schemas
+from models import Todo, User
+import jwt
 
-router = APIRouter(prefix="/todos", tags=["todos"])
+SECRET_KEY = "supersecret"
+ALGORITHM = "HS256"
 
-@router.post("/", response_model=schemas.TodoRead)
-def create_todo(todo: schemas.TodoCreate, db: Session = Depends(get_db)):
-    db_todo = models.Todo(title=todo.title)
-    db.add(db_todo)
-    db.commit()
-    db.refresh(db_todo)
-    return db_todo
+router = APIRouter()
 
-@router.get("/", response_model=list[schemas.TodoRead])
-def get_todos(db: Session = Depends(get_db)):
-    return db.query(models.Todo).all()
+def get_current_user(token: str = Header(...), db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        user = db.query(User).filter(User.username == username).first()
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return user
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@router.get("/")
+def read_todos(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    todos = db.query(Todo).filter(Todo.owner_id == current_user.id).all()
+    return todos
