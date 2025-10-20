@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, Depends, HTTPException, Header, Request, Body, Cookie, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, Cookie, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
 from passlib.context import CryptContext
 import jwt
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 
 # --- DATABASE ---
 SQLALCHEMY_DATABASE_URL = "sqlite:///./todo.db"
@@ -29,6 +29,7 @@ class Todo(Base):
     __tablename__ = "todos"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
+    description = Column(String, default="")
     completed = Column(Boolean, default=False)
     owner_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("User", back_populates="todos")
@@ -46,18 +47,24 @@ class Token(BaseModel):
 
 class TodoCreate(BaseModel):
     title: str
+    description: Optional[str] = ""
+
+class TodoUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+
+class TodoPatch(BaseModel):
+    completed: Optional[bool] = None
+    description: Optional[str] = None
 
 class TodoResponse(BaseModel):
     id: int
     title: str
+    description: str
     completed: bool
     owner_id: int
     class Config:
         from_attributes = True
-
-# ✅ DODANE: model do PATCH
-class TodoPatch(BaseModel):
-    completed: bool
 
 # --- APP ---
 app = FastAPI()
@@ -179,45 +186,40 @@ def get_current_user(
     return user
 
 # --- TODOS ---
-@app.get("/todos", response_model=list[TodoResponse])
+@app.get("/todos", response_model=List[TodoResponse])
 def get_todos(current_user: User = Depends(get_current_user)):
     return current_user.todos
 
 @app.post("/todos", response_model=TodoResponse)
 def create_todo(todo: TodoCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_todo = Todo(title=todo.title, owner_id=current_user.id)
+    new_todo = Todo(title=todo.title, description=todo.description or "", owner_id=current_user.id)
     db.add(new_todo)
     db.commit()
     db.refresh(new_todo)
-    return TodoResponse(
-        id=new_todo.id,
-        title=new_todo.title,
-        completed=new_todo.completed,
-        owner_id=new_todo.owner_id
-    )
+    return new_todo
 
 @app.put("/todos/{todo_id}", response_model=TodoResponse)
-def update_todo(todo_id: int, todo: TodoCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_todo(todo_id: int, todo: TodoUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     db_todo = db.query(Todo).filter(Todo.id == todo_id, Todo.owner_id == current_user.id).first()
     if not db_todo:
         raise HTTPException(status_code=404, detail="Todo not found")
-    db_todo.title = todo.title
+    if todo.title is not None:
+        db_todo.title = todo.title
+    if todo.description is not None:
+        db_todo.description = todo.description
     db.commit()
     db.refresh(db_todo)
     return db_todo
 
-# ✅ PATCH zgodny z frontendem
 @app.patch("/todos/{todo_id}", response_model=TodoResponse)
-def patch_todo(
-    todo_id: int,
-    data: TodoPatch,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+def patch_todo(todo_id: int, data: TodoPatch, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     db_todo = db.query(Todo).filter(Todo.id == todo_id, Todo.owner_id == current_user.id).first()
     if not db_todo:
         raise HTTPException(status_code=404, detail="Todo not found")
-    db_todo.completed = data.completed
+    if data.completed is not None:
+        db_todo.completed = data.completed
+    if data.description is not None:
+        db_todo.description = data.description
     db.commit()
     db.refresh(db_todo)
     return db_todo
